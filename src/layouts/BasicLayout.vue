@@ -69,8 +69,9 @@ const handleUserCommand = (command: string) => {
       router.push('/profile')
       break
     case 'logout':
-      // 处理登出逻辑
-      console.log('登出')
+      // 处理登出逻辑：清理 token 并返回登录页
+      window.localStorage.removeItem('token')
+      router.push('/login')
       break
   }
 }

@@ -4,6 +4,20 @@ import BasicLayout from '../layouts/BasicLayout.vue'
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    // 登录与注册页面（不需要主布局）
+    {
+      path: '/login',
+      name: 'Login',
+      component: () => import('../views/Login.vue'),
+      meta: { public: true, title: '登录' }
+    },
+    {
+      path: '/register',
+      name: 'Register',
+      component: () => import('../views/Register.vue'),
+      meta: { public: true, title: '注册' }
+    },
+    // 受保护的后台主布局
     {
       path: '/',
       component: BasicLayout,
@@ -38,4 +52,26 @@ const router = createRouter({
   ]
 })
 
+// 路由守卫：检查 Token，未登录访问受保护页面时跳转登录页
+router.beforeEach((to, _from, next) => {
+  const isPublic = to.meta.public
+  const token = window.localStorage.getItem('token')
+
+  if (!isPublic && !token) {
+    // 未登录，跳转登录页
+    return next({
+      path: '/login',
+      query: { redirect: to.fullPath }
+    })
+  }
+
+  if (to.path === '/login' && token) {
+    // 已登录访问登录页，直接跳到首页
+    return next('/')
+  }
+
+  next()
+})
+
 export default router
+
