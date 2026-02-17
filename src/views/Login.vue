@@ -1,67 +1,50 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import type { FormInstance, FormRules } from 'element-plus'
+import { login, getCaptcha } from '@/api/auth'
 import { ElMessage } from 'element-plus'
-import { login } from '@/api/auth'
-
-interface LoginForm {
-  username: string
-  password: string
-}
 
 const router = useRouter()
-
-const formRef = ref<FormInstance | null>(null)
-
-const form = reactive<LoginForm>({
+const formRef = ref()
+const loading = ref(false)
+const captchaImg = ref('')
+const loginForm = ref({
   username: '',
-  password: ''
+  password: '',
+  captchaCode: '',
+  captchaUuid: '',
 })
 
-const loading = ref(false)
+const rules = {
+  username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  captchaCode: [{ required: true, message: '请输入验证码', trigger: 'blur' }],
+}
 
-const rules: FormRules<LoginForm> = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码长度不能少于 6 位', trigger: 'blur' }
-  ]
+const loadCaptcha = async () => {
+  try {
+    const res = await getCaptcha()
+    captchaImg.value = res.data.image
+    loginForm.value.captchaUuid = res.data.uuid
+  } catch (e) {
+    ElMessage.error('验证码加载失败')
+  }
 }
 
 const handleLogin = () => {
-  if (!formRef.value) return
   formRef.value.validate(async (valid) => {
     if (!valid) return
     loading.value = true
     try {
-      const res = await login({
-        username: form.username,
-        password: form.password
-      })
-      if (res.code !== 1) {
-        ElMessage.error(res.msg || '登录失败，请检查用户名或密码')
-        return
-      }
-
-      const token = (res.data as any)?.accessToken
-      if (token) {
-        // 保留 Authorization 头中的 Bearer 前缀逻辑，这里只存 accessToken
-        window.localStorage.setItem('token', token)
-      }
-
-      ElMessage.success(res.msg || '登录成功')
-
-      // 支持从 ?redirect=xxx 返回原访问页，否则回到首页
-      const redirectPath =
-        (router.currentRoute.value.query.redirect as string | undefined) || '/'
-      router.push(redirectPath)
-    } catch (error: any) {
-      const msg =
-        error?.response?.data?.message ||
-        error?.message ||
-        '登录失败，请检查用户名或密码'
-      ElMessage.error(msg)
+      const res = await login(loginForm.value)
+      // 登录成功，保存 token 和用户信息
+      localStorage.setItem('token', res.data.accessToken)
+      localStorage.setItem('tokenType', res.data.tokenType)
+      localStorage.setItem('userInfo', JSON.stringify(res.data.userInfo))
+      router.push('/')
+    } catch (e) {
+      // 错误提示已在拦截器弹出，这里只需停止 loading
+      loadCaptcha()
     } finally {
       loading.value = false
     }
@@ -71,113 +54,53 @@ const handleLogin = () => {
 const goRegister = () => {
   router.push('/register')
 }
+
+onMounted(() => {
+  loadCaptcha()
+})
 </script>
 
 <template>
-  <div class="auth-page">
-    <div class="auth-wrapper">
-      <el-card class="auth-card" shadow="hover">
-        <div class="card-header">
-          <h2 class="title">VulnScan Pro</h2>
-          <p class="subtitle">安全漏洞扫描平台 · 登录</p>
-        </div>
-
-        <el-form
-          ref="formRef"
-          :model="form"
-          :rules="rules"
-          label-position="top"
-          class="auth-form"
-        >
-          <el-form-item label="用户名" prop="username">
-            <el-input
-              v-model="form.username"
-              placeholder="请输入用户名"
-              autocomplete="username"
-            />
-          </el-form-item>
-
-          <el-form-item label="密码" prop="password">
-            <el-input
-              v-model="form.password"
-              type="password"
-              show-password
-              placeholder="请输入密码"
-              autocomplete="current-password"
-            />
-          </el-form-item>
-
-          <el-form-item>
-            <el-button
-              type="primary"
-              class="submit-btn"
-              :loading="loading"
-              @click="handleLogin"
-            >
-              登录
-            </el-button>
-          </el-form-item>
-
-          <div class="footer-text">
-            还没有账号？
-            <el-button link type="primary" @click="goRegister">去注册</el-button>
+  <div class="login-container">
+    <el-card class="login-card">
+      <h2 class="login-title">登录</h2>
+      <el-form :model="loginForm" :rules="rules" ref="formRef" label-width="80px">
+        <el-form-item label="账号" prop="username">
+          <el-input v-model="loginForm.username" placeholder="请输入账号" />
+        </el-form-item>
+        <el-form-item label="密码" prop="password">
+          <el-input v-model="loginForm.password" type="password" placeholder="请输入密码" />
+        </el-form-item>
+        <el-form-item label="验证码" prop="captchaCode">
+          <div style="display: flex; align-items: center;">
+            <el-input v-model="loginForm.captchaCode" placeholder="请输入验证码" style="flex:1; margin-right: 8px;" @keyup.enter="handleLogin" />
+            <img :src="captchaImg" @click="loadCaptcha" style="height:32px;cursor:pointer;" title="点击刷新验证码" />
           </div>
-        </el-form>
-      </el-card>
-    </div>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="loading" :disabled="loading" @click="handleLogin">登录</el-button>
+          <el-button type="text" @click="goRegister">注册</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
 <style scoped>
-.auth-page {
-  width: 100%;
-  height: 100%;
+.login-container {
   display: flex;
-  align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #141e30 0%, #243b55 100%);
+  align-items: center;
+  height: 100vh;
+  background: #f5f5f5;
 }
-
-.auth-wrapper {
-  width: 100%;
-  max-width: 420px;
-  padding: 24px;
+.login-card {
+  width: 400px;
+  padding: 32px 24px;
 }
-
-.auth-card {
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-}
-
-.card-header {
+.login-title {
   text-align: center;
   margin-bottom: 24px;
-}
-
-.title {
-  font-size: 24px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.subtitle {
-  font-size: 13px;
-  color: #909399;
-}
-
-.auth-form {
-  margin-top: 8px;
-}
-
-.submit-btn {
-  width: 100%;
-}
-
-.footer-text {
-  margin-top: 8px;
-  font-size: 13px;
-  color: #909399;
-  text-align: center;
 }
 </style>
 

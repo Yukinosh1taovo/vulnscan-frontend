@@ -1,80 +1,75 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import type { FormInstance, FormRules } from 'element-plus'
+import { register, getCaptcha } from '@/api/auth'
 import { ElMessage } from 'element-plus'
-import { register } from '@/api/auth'
-
-interface RegisterForm {
-  username: string
-  email: string
-  password: string
-  confirmPassword: string
-}
 
 const router = useRouter()
-
-const formRef = ref<FormInstance | null>(null)
-
-const form = reactive<RegisterForm>({
+const formRef = ref()
+const loading = ref(false)
+const captchaImg = ref('')
+const form = ref({
   username: '',
-  email: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  email: '',
+  captchaCode: '',
+  captchaUuid: '',
 })
 
-const loading = ref(false)
+const rules = {
+  username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  password: [
+    { required: true, message: '请输入密码', trigger: 'blur' },
+    { min: 6, message: '密码长度不能小于6位', trigger: 'blur' }
+  ],
+  confirmPassword: [
+    { required: true, message: '请确认密码', trigger: 'blur' },
+    { min: 6, message: '密码长度不能小于6位', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (value !== form.value.password) {
+          callback(new Error('两次密码不一致'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
+  email: [
+    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
+  captchaCode: [{ required: true, message: '请输入验证码', trigger: 'blur' }],
+}
 
-const validateConfirmPassword = (_rule: any, value: string, callback: any) => {
-  if (!value) {
-    callback(new Error('请再次输入密码'))
-  } else if (value !== form.password) {
-    callback(new Error('两次输入的密码不一致'))
-  } else {
-    callback()
+const loadCaptcha = async () => {
+  try {
+    const res = await getCaptcha()
+    captchaImg.value = res.data.image
+    form.value.captchaUuid = res.data.uuid
+  } catch (e) {
+    ElMessage.error('验证码加载失败')
   }
 }
 
-const rules: FormRules<RegisterForm> = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    {
-      type: 'email',
-      message: '请输入正确的邮箱地址',
-      trigger: ['blur', 'change']
-    }
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, message: '密码长度不能少于 6 位', trigger: 'blur' }
-  ],
-  confirmPassword: [
-    { required: true, validator: validateConfirmPassword, trigger: 'blur' }
-  ]
-}
-
 const handleRegister = () => {
-  if (!formRef.value) return
   formRef.value.validate(async (valid) => {
     if (!valid) return
     loading.value = true
     try {
-      const res = await register({
-        username: form.username,
-        password: form.password,
-        email: form.email
+      await register({
+        username: form.value.username,
+        password: form.value.password,
+        email: form.value.email,
+        captchaCode: form.value.captchaCode,
+        captchaUuid: form.value.captchaUuid,
       })
-      if ((res as any)?.code !== 1) {
-        ElMessage.error((res as any)?.msg || '注册失败，请稍后重试')
-        return
-      }
-      ElMessage.success(res.msg || '注册成功，请登录')
+      ElMessage.success('注册成功，请登录')
       router.push('/login')
-    } catch (error: any) {
-      const msg =
-        error?.response?.data?.message || error?.message || '注册失败，请稍后重试'
-      ElMessage.error(msg)
+    } catch (e) {
+      loadCaptcha()
     } finally {
       loading.value = false
     }
@@ -84,131 +79,59 @@ const handleRegister = () => {
 const goLogin = () => {
   router.push('/login')
 }
+
+onMounted(() => {
+  loadCaptcha()
+})
 </script>
 
 <template>
-  <div class="auth-page">
-    <div class="auth-wrapper">
-      <el-card class="auth-card" shadow="hover">
-        <div class="card-header">
-          <h2 class="title">VulnScan Pro</h2>
-          <p class="subtitle">安全漏洞扫描平台 · 注册</p>
-        </div>
-
-        <el-form
-          ref="formRef"
-          :model="form"
-          :rules="rules"
-          label-position="top"
-          class="auth-form"
-        >
-          <el-form-item label="用户名" prop="username">
-            <el-input
-              v-model="form.username"
-              placeholder="请输入用户名"
-              autocomplete="username"
-            />
-          </el-form-item>
-
-          <el-form-item label="邮箱" prop="email">
-            <el-input
-              v-model="form.email"
-              placeholder="请输入邮箱"
-              autocomplete="email"
-            />
-          </el-form-item>
-
-          <el-form-item label="密码" prop="password">
-            <el-input
-              v-model="form.password"
-              type="password"
-              show-password
-              placeholder="请输入密码"
-              autocomplete="new-password"
-            />
-          </el-form-item>
-
-          <el-form-item label="确认密码" prop="confirmPassword">
-            <el-input
-              v-model="form.confirmPassword"
-              type="password"
-              show-password
-              placeholder="请再次输入密码"
-              autocomplete="new-password"
-            />
-          </el-form-item>
-
-          <el-form-item>
-            <el-button
-              type="primary"
-              class="submit-btn"
-              :loading="loading"
-              @click="handleRegister"
-            >
-              注册
-            </el-button>
-          </el-form-item>
-
-          <div class="footer-text">
-            已有账号？
-            <el-button link type="primary" @click="goLogin">去登录</el-button>
+  <div class="register-container">
+    <el-card class="register-card">
+      <h2 class="register-title">注册</h2>
+      <el-form :model="form" :rules="rules" ref="formRef" label-width="80px">
+        <el-form-item label="账号" prop="username">
+          <el-input v-model="form.username" placeholder="请输入账号" />
+        </el-form-item>
+        <el-form-item label="密码" prop="password">
+          <el-input v-model="form.password" type="password" placeholder="请输入密码" />
+        </el-form-item>
+        <el-form-item label="确认密码" prop="confirmPassword">
+          <el-input v-model="form.confirmPassword" type="password" placeholder="请再次输入密码" />
+        </el-form-item>
+        <el-form-item label="邮箱" prop="email">
+          <el-input v-model="form.email" placeholder="请输入邮箱" />
+        </el-form-item>
+        <el-form-item label="验证码" prop="captchaCode">
+          <div style="display: flex; align-items: center;">
+            <el-input v-model="form.captchaCode" placeholder="请输入验证码" style="flex:1; margin-right: 8px;" />
+            <img :src="captchaImg" @click="loadCaptcha" style="height:32px;cursor:pointer;" title="点击刷新验证码" />
           </div>
-        </el-form>
-      </el-card>
-    </div>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="loading" @click="handleRegister">注册</el-button>
+          <el-button type="text" @click="goLogin">返回登录</el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
 <style scoped>
-.auth-page {
-  width: 100%;
-  height: 100%;
+.register-container {
   display: flex;
-  align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #141e30 0%, #243b55 100%);
+  align-items: center;
+  height: 100vh;
+  background: #f5f5f5;
 }
-
-.auth-wrapper {
-  width: 100%;
-  max-width: 420px;
-  padding: 24px;
+.register-card {
+  width: 400px;
+  padding: 32px 24px;
 }
-
-.auth-card {
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-}
-
-.card-header {
+.register-title {
   text-align: center;
   margin-bottom: 24px;
-}
-
-.title {
-  font-size: 24px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-
-.subtitle {
-  font-size: 13px;
-  color: #909399;
-}
-
-.auth-form {
-  margin-top: 8px;
-}
-
-.submit-btn {
-  width: 100%;
-}
-
-.footer-text {
-  margin-top: 8px;
-  font-size: 13px;
-  color: #909399;
-  text-align: center;
 }
 </style>
 
